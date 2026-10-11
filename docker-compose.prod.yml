@@ -8,6 +8,7 @@ services:
     volumes:
       - ./infra/nginx/conf.d:/etc/nginx/conf.d:ro
       - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ./web:/var/www/ride-hailing:ro
     depends_on:
       - api-gateway
       - ws-gateway
