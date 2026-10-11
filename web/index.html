@@ -163,6 +163,19 @@ function formatCurrency(vnd) {
   return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND', maximumFractionDigits: 0 }).format(vnd);
 }
 
+function decodeJwt(token) {
+  try {
+    if (!token || !token.includes('.')) return null;
+    const base64Url = token.split('.')[1];
+    const base64 = base64Url.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(atob(base64).split('').map(c => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2)).join(''));
+    return JSON.parse(jsonPayload);
+  } catch (e) {
+    console.error('JWT decode failed:', e);
+    return null;
+  }
+}
+
 function formatTime(iso) {
   if (!iso) return '-';
   const d = new Date(iso);
@@ -179,6 +192,7 @@ function percentile(arr, p) {
 // ==================== STATE ====================
 const state = {
   token: null,
+  userId: null,
   ws: null,
   wsUrl: null,
   reconnectAttempt: 0,
@@ -253,6 +267,7 @@ function updateMapControls() {
 async function apiRequest(endpoint, options = {}) {
   const headers = { 'Content-Type': 'application/json', ...options.headers };
   if (state.token) headers['Authorization'] = `Bearer ${state.token}`;
+  if (state.userId) headers['X-User-Id'] = state.userId;
   if (state.idempotencyKey) headers['Idempotency-Key'] = state.idempotencyKey;
 
   const res = await fetch(`${API_BASE}${endpoint}`, { ...options, headers });
@@ -268,7 +283,16 @@ async function login() {
 
   try {
     const data = await apiRequest('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
-    state.token = data.token;
+    state.token = data.accessToken || data.token;
+    // Decode JWT to get userId
+    const payload = decodeJwt(state.token);
+    if (payload && payload.sub) {
+      state.userId = payload.sub;
+    } else if (payload && payload.userId) {
+      state.userId = payload.userId;
+    } else if (payload && payload.id) {
+      state.userId = payload.id;
+    }
     document.getElementById('auth-status').textContent = 'Đã đăng nhập';
     document.getElementById('auth-status').className = 'status-badge status-authenticated';
     document.getElementById('auth-section').classList.add('hidden');
@@ -476,10 +500,8 @@ async function requestQuote() {
     const data = await apiRequest('/quote', {
       method: 'POST',
       body: JSON.stringify({
-        pickup_lat: state.pickup.lat,
-        pickup_lng: state.pickup.lng,
-        dropoff_lat: state.dropoff.lat,
-        dropoff_lng: state.dropoff.lng
+        pickup: { lat: state.pickup.lat, lng: state.pickup.lng },
+        dropoff: { lat: state.dropoff.lat, lng: state.dropoff.lng }
       })
     });
     const el = document.getElementById('quote-result');
@@ -500,10 +522,8 @@ async function bookRide() {
     const data = await apiRequest('/rides', {
       method: 'POST',
       body: JSON.stringify({
-        pickup_lat: state.pickup.lat,
-        pickup_lng: state.pickup.lng,
-        dropoff_lat: state.dropoff.lat,
-        dropoff_lng: state.dropoff.lng
+        pickup: { lat: state.pickup.lat, lng: state.pickup.lng },
+        dropoff: { lat: state.dropoff.lat, lng: state.dropoff.lng }
       })
     });
     state.rideId = data.ride_id;
