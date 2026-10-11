@@ -52,6 +52,38 @@ public class RideController {
         }
     }
 
+    @GetMapping("/rides")
+    public ResponseEntity<?> getRides(@RequestAttribute("userId") long userId,
+                                     @RequestParam(defaultValue = "0") int page,
+                                     @RequestParam(defaultValue = "20") int size,
+                                     @RequestParam(required = false) String status) {
+        DispatchService.RidesPage result = dispatchService.getRides(userId, page, size, status);
+
+        Map<String, Object> response = new java.util.HashMap<>();
+        response.put("rides", result.rides().stream().map(t -> {
+            Map<String, Object> m = new java.util.HashMap<>();
+            m.put("tripId", t.id().toString());
+            m.put("status", t.status().name());
+            m.put("customerId", t.customerId());
+            m.put("driverId", t.driverId());
+            m.put("fare", t.fare());
+            m.put("pickupLat", t.pickupLat());
+            m.put("pickupLng", t.pickupLng());
+            m.put("dropoffLat", t.dropoffLat());
+            m.put("dropoffLng", t.dropoffLng());
+            m.put("distanceM", t.distanceM());
+            m.put("surge", t.surge());
+            m.put("createdAt", t.createdAt().toString());
+            m.put("updatedAt", t.updatedAt().toString());
+            return m;
+        }).toList());
+        response.put("total", result.total());
+        response.put("page", result.page());
+        response.put("size", result.size());
+        response.put("totalPages", (int) Math.ceil((double) result.total() / result.size()));
+        return ResponseEntity.ok(response);
+    }
+
     @GetMapping("/rides/{id}")
     public ResponseEntity<?> getRide(@RequestAttribute("userId") long userId,
                                     @PathVariable UUID id) {
@@ -69,6 +101,14 @@ public class RideController {
         response.put("customerId", t.customerId());
         response.put("driverId", t.driverId());
         response.put("fare", t.fare());
+        response.put("pickupLat", t.pickupLat());
+        response.put("pickupLng", t.pickupLng());
+        response.put("dropoffLat", t.dropoffLat());
+        response.put("dropoffLng", t.dropoffLng());
+        response.put("distanceM", t.distanceM());
+        response.put("surge", t.surge());
+        response.put("createdAt", t.createdAt().toString());
+        response.put("updatedAt", t.updatedAt().toString());
         return ResponseEntity.ok(response);
     }
 

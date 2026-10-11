@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -134,6 +135,19 @@ public class DispatchService {
         }
 
         return trip;
+    }
+
+    public record RidesPage(List<Trip> rides, long total, int page, int size) {}
+
+    public RidesPage getRides(long customerId, int page, int size, String status) {
+        if (page < 0) page = 0;
+        if (size <= 0 || size > 100) size = 20;
+
+        int offset = page * size;
+        List<Trip> rides = tripRepository.findByCustomerId(customerId, offset, size, status);
+        long total = tripRepository.countByCustomerId(customerId, status);
+
+        return new RidesPage(rides, total, page, size);
     }
 
     public static class InsufficientBalanceException extends RuntimeException {

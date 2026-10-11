@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Cunos982003/IOC_PTH251125_BE105_LeTuanCuong_Project/actions/workflows/ci.yml/badge.svg)](https://github.com/Cunos982003/IOC_PTH251125_BE105_LeTuanCuong_Project/actions/workflows/ci.yml)
 
-## 🚀 Quick Start
+## 🚀 Quick Start (Local Dev)
 
 ```powershell
 # 1. Clone repository
@@ -33,7 +33,8 @@ docker compose ps                          # Tất cả phải "healthy"
 
 - **[Đề bài gốc](docs/DE-BAI.md)** - Yêu cầu đề tài R1-R16
 - **[Build / Test / CI-CD / Deploy](BUILD-TEST-DEPLOY-GUIDE.md)** - Hướng dẫn chi tiết quy trình phát triển
-- **[CI/CD Deployment](DEPLOY-GUIDE.md)** - GitHub Actions → GHCR → VPS SSH deploy
+- **[CI/CD Build & Push](DEPLOY-GUIDE.md)** - GitHub Actions build/push image lên GHCR
+- **[VPS Deploy Manual](docs/BAO-CAO.md#8-workflow-triển-khai-thực-tế)** - Manual pull từ GHCR lên VPS
 - **[E2E Testing](tools/e2e/README.md)** - Bộ test end-to-end
 - **[Load Testing](tools/loadtest/README.md)** - Công cụ kiểm thử tải
 - **[Contracts](docs/contracts/README.md)** - Hợp đồng giữa các service
@@ -89,7 +90,7 @@ mvn verify -DskipITs=false
 .\scripts\check-contracts.ps1
 ```
 
-### 1.5. Chạy hệ thống (Docker Compose)
+### 1.5. Chạy hệ thống (Docker Compose - Dev)
 
 **Profiles có sẵn:** `apps` (7 service), `ha` (replica ws-gateway thứ 2)
 
@@ -165,34 +166,63 @@ python drivers.py --drivers 100 --duration 300    # Giả lập gửi GPS
 python latency.py --duration 300                  # Đo độ trễ (terminal khác)
 ```
 
-### 1.8. Deploy lên VPS (CI/CD GitHub Actions → VPS)
+### 1.8. Deploy Production (Manual GHCR Push/Pull)
 
-**Pipeline tự động** (`.github/workflows/ci.yml`) chạy khi push nhánh `master`:
+**Quy trình thực tế (không dùng auto-deploy SSH):**
 
+```bash
+# --- LOCAL: Build & Push lên GHCR ---
+docker login ghcr.io -u <github-username> -p <PAT>
+
+# Build tất cả images (dev compose)
+docker compose -f docker-compose.yml build --profile apps --profile ha
+
+# Push tất cả
+docker compose -f docker-compose.yml push --profile apps --profile ha
+
+# Hoặc push từng service với tag cụ thể
+IMAGE_TAG=v1.0.1 docker compose -f docker-compose.yml build --profile apps --profile ha
+IMAGE_TAG=v1.0.1 docker compose -f docker-compose.yml push --profile apps --profile ha
+```
+
+```bash
+# --- VPS: Pull & Run ---
+# 1. Clone repo & copy .env, infra/
+git clone <repo> && cd ride-hailing
+cp .env.example .env  # Điền giá trị thực
+
+# 2. Login GHCR (read:packages PAT)
+docker login ghcr.io -u <github-username> -p <PAT-read>
+
+# 3. Pull images
+docker compose -f docker-compose.prod.yml pull
+
+# 4. Up production stack
+docker compose -f docker-compose.prod.yml up -d
+
+# 5. Check health
+docker compose -f docker-compose.prod.yml ps
+curl http://ridehailing.duckdns.org/api/v1/health
+```
+
+**Cập nhật version mới trên VPS:**
+```bash
+IMAGE_TAG=v1.0.2 docker compose -f docker-compose.prod.yml pull
+IMAGE_TAG=v1.0.2 docker compose -f docker-compose.prod.yml up -d --no-deps api-gateway ws-gateway user-service location-service dispatch-service pricing-service payment-service
+```
+
+**Rollback:**
+```bash
+IMAGE_TAG=<old-tag> docker compose -f docker-compose.prod.yml up -d --force-recreate
+```
+
+**GitHub Actions CI (`.github/workflows/ci.yml`) - chỉ build/test/push image:**
 | Job | Chức năng |
 |-----|-----------|
 | `test` | `mvn -B verify` (unit + integration) |
 | `contracts` | Kiểm tra hợp đồng `docs/contracts` vs bản copy |
 | `images` | Build 7 image Docker → push **GHCR** (`ghcr.io/<owner>/ride-hailing-<service>:<sha>` + `:latest`) |
-| `deploy` | SSH vào VPS → chạy `./scripts/deploy.sh <sha>` (rolling update, health check) |
-
-**Bí mật GitHub cần thiết** (Settings → Secrets → Actions):
-| Secret | Mô tả |
-|--------|-------|
-| `VPS_HOST` | IP/hostname VPS |
-| `VPS_USER` | User SSH (vd `ubuntu`) |
-| `VPS_SSH_KEY` | **Private key** (`cat ~/.ssh/id_ed25519`) |
-| `GHCR_PAT` | PAT classic `write:packages` |
-| `GHCR_USER` | GitHub username |
-
-**Deploy thủ công trên VPS:**
-```bash
-cd ~/ride-hailing
-IMAGE_TAG=<sha> ./scripts/deploy.sh
-# Rollback:
-./scripts/deploy.sh <tag-trong-.deployed-tag>
-```
-Xem chi tiết ở [DEPLOY-GUIDE.md](DEPLOY-GUIDE.md) và [mục 5](#5-hướng-dẫn-triển-khai-lên-server-vps-thực-tế).
+| *không có job deploy* | VPS tự pull manual |
 
 ---
 

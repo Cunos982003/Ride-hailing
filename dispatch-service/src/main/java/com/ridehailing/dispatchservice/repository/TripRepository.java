@@ -14,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -120,6 +121,65 @@ public class TripRepository {
                 rs.getTimestamp("updated_at").toInstant()
             ))
             .optional();
+    }
+
+    public List<Trip> findByCustomerId(long customerId, int offset, int limit, String status) {
+        StringBuilder sql = new StringBuilder("""
+            SELECT id, customer_id, driver_id, status, pickup_lat, pickup_lng,
+                   dropoff_lat, dropoff_lng, distance_m, fare, surge, idempotency_key,
+                   version, created_at, updated_at
+            FROM trips
+            WHERE customer_id = ?
+        """);
+
+        if (status != null && !status.isEmpty()) {
+            sql.append(" AND status = ?");
+        }
+
+        sql.append(" ORDER BY created_at DESC LIMIT ? OFFSET ?");
+
+        var spec = jdbcClient.sql(sql.toString())
+            .param(customerId);
+
+        if (status != null && !status.isEmpty()) {
+            spec = spec.param(status);
+        }
+
+        spec = spec.param(limit).param(offset);
+
+        return spec.query((rs, rowNum) -> new Trip(
+            UUID.fromString(rs.getString("id")),
+            rs.getLong("customer_id"),
+            rs.getObject("driver_id") != null ? rs.getLong("driver_id") : null,
+            TripStatus.valueOf(rs.getString("status")),
+            rs.getDouble("pickup_lat"),
+            rs.getDouble("pickup_lng"),
+            rs.getDouble("dropoff_lat"),
+            rs.getDouble("dropoff_lng"),
+            rs.getLong("distance_m"),
+            rs.getLong("fare"),
+            rs.getBigDecimal("surge"),
+            rs.getString("idempotency_key"),
+            rs.getInt("version"),
+            rs.getTimestamp("created_at").toInstant(),
+            rs.getTimestamp("updated_at").toInstant()
+        )).list();
+    }
+
+    public long countByCustomerId(long customerId, String status) {
+        StringBuilder sql = new StringBuilder("SELECT COUNT(*) FROM trips WHERE customer_id = ?");
+
+        if (status != null && !status.isEmpty()) {
+            sql.append(" AND status = ?");
+        }
+
+        var spec = jdbcClient.sql(sql.toString()).param(customerId);
+
+        if (status != null && !status.isEmpty()) {
+            spec = spec.param(status);
+        }
+
+        return spec.query(Long.class).single();
     }
 
     @Transactional
