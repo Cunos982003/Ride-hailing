@@ -1,170 +1,114 @@
-# KỊCH BẢN DEMO 5 PHÚT
+# KỊCH BẢN DEMO 7 PHÚT - RIDE HAILING SYSTEM
 
-**Môi trường:** https://ridehailing.duckdns.org (VPS Ubuntu, Docker Compose, Nginx + Certbot)  
-**Thời gian:** ~5 phút  
-**Chuẩn bị:** Mở 2 tab trình duyệt (1 khách, 1 theo dõi), 1 terminal
-
----
-
-## DANH SÁCH KIỂM TRƯỚC KHI DEMO
-
-- [ ] VPS chạy: `docker compose -f compose.yaml --profile apps --profile ha up -d`
-- [ ] 9 container healthy: `docker ps --format "table {{.Names}}\t{{.Status}}"`
-- [ ] HTTPS OK: `curl -I https://ridehailing.duckdns.org/api/v1/health` → 200 UP
-- [ ] Web app load: Mở https://ridehailing.duckdns.org → hiện bản đồ Leaflet
-- [ ] 100 tài xế ảo: `python tools/loadtest/drivers.py --count 100` (chạy nền)
-- [ ] WS Gateway 2 replica: `docker ps | grep ws-gateway` → 2 container
+## Checklist trước khi quay
+- [ ] `docker compose up -d --profile apps` healthy (7 service + infra)
+- [ ] `docker compose ps` tất cả `healthy`
+- [ ] VPS DNS `ridehailing.duckdns.org` trỏ đúng IP, cert SSL valid
+- [ ] Postman collection + environment local/vps đã import
+- [ ] `tools/loadtest/drivers.py` chạy 100 driver ảo (cho luồng B)
+- [ ] Screen recording software ready (OBS/ShareX)
+- [ ] Terminal font size ≥ 14, theme dark
 
 ---
 
-## KỊCH BẢN CHI TIẾT
-
-### 1. Khách đăng ký & đăng nhập (30s)
-**Tab 1 - Khách:**
-1. Mở https://ridehailing.duckdns.org
-2. Nhập email: `demo_customer@test.com`, mật khẩu: `password123`
-3. Bấm **Đăng ký** → tự động đăng nhập
-4. Kiểm tra: Sidebar hiện "Đã đăng nhập", "Ví điện tử: 500.000đ", "Kết nối WebSocket: Đã xác thực"
-
-**Lệnh kiểm tra (terminal):**
+## 0:00 – 1:00 | KIẾN TRÚC (1 phút)
+**Lệnh demo:**
 ```bash
-curl -s -X POST https://ridehailing.duckdns.org/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"demo_customer@test.com","password":"password123"}' | jq .accessToken
+docker compose ps
 ```
+**Nói:** "7 microservice độc lập, không shared code, giao tiếp qua RabbitMQ events + Redis GEO. API Gateway ở cổng 8000 route theo path prefix. WS Gateway 2 instance (8001, 8011) HA qua Redis pub/sub."
 
 ---
 
-### 2. Chọn điểm đón, điểm đến, báo giá, đặt xe (60s)
-**Tab 1 - Khách:**
-1. Click 1 lần trên bản đồ → marker xanh (điểm đón) ở Hà Nội (VD: 21.0285, 105.8542)
-2. Click lần 2 → marker đỏ (điểm đến) cách ~1km
-3. Bấm **Báo giá** → hiện cước cơ bản, surge x1.0, tổng ước tính ~34.000đ
-4. Bấm **Đặt xe** → nút "Đặt xe" ẩn, nút "Hủy" hiện, timeline: CREATED → MATCHING
-
-**Lệnh kiểm tra:**
+## 1:00 – 3:00 | WEB + 100 TÀI XẾ ẢO (2 phút)
+**Lệnh demo:**
 ```bash
-# Lấy ride_id từ response đặt xe
-curl -s -X POST https://ridehailing.duckdns.org/api/v1/rides \
-  -H "Authorization: Bearer <TOKEN>" \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d '{"pickup_lat":21.0285,"pickup_lng":105.8542,"dropoff_lat":21.0385,"dropoff_lng":105.8642}' | jq .
+# Terminal 1: Chạy 100 driver ảo
+python tools/loadtest/drivers.py --count 100 --duration 120 --ws-url ws://localhost:8001
+
+# Terminal 2: Xem location-service Redis GEO
+docker exec ride-hailing-redis-1 redis-cli GEORADIUS drivers:geo 106.7009 10.7769 2000 m COUNT 5
 ```
+**Nói:** "100 driver kết nối WS `/ws/driver`, gửi location 1Hz. Location-service index Redis GEO. Dispatch-service query nearby 2km top 5 khi có ride request."
 
 ---
 
-### 3. Tài xế ảo nhận chuyến, trạng thái chạy tới COMPLETED (90s)
-**Tab 1 - Khách:** Quan sát timeline tự cập nhật:
-- MATCHING → ACCEPTED (tài xế nhận)
-- ACCEPTED → PICKING_UP (tài xế đến đón)
-- PICKING_UP → IN_TRIP (bắt đầu chạy)
-- IN_TRIP → COMPLETED (kết thúc)
+## 3:00 – 4:00 | GHÉP CHUYẾN & THANH TOÁN (1 phút)
+**Lệnh demo (Postman/Newman):**
+```powershell
+cd docs/postman/scripts
+.\run-postman.ps1 -Env local -Folder "01 Auth,02 User & Driver,03 Quote,04 Rides,05 Trip actions (tài xế),06 Wallet" -DelayMs 200
+```
+**Nói khi chạy:** "Khách đăng ký → login → ví topup 500k → quote → đặt xe (idempotent). Dispatch matching sequential near→far, offer qua RabbitMQ `trips.offered` → WS Gateway push `offer` real-time. Tài xế accept → `trips.offered` confirm → dispatch lock Redis + DB unique index chống trùng. Arrive → Start → Complete → `trips.completed` → payment-service trừ khách, cộng hoa hồng tài xế idempotent qua `eventId`."
 
-**Marker tài xế:** Xanh lá di chuyển mượt theo lộ trình, popup "Tài xế"
+---
 
-**Tab 2 - Theo dõi (mở cùng URL, đăng nhập tài khoản khác hoặc ẩn danh):**
-- Có thể thấy cùng một chuyến, marker tài xế đồng bộ
+## 4:00 – 5:00 | POSTMAN/NEWMAN (1 phút)
+**Lệnh demo:**
+```powershell
+# Chạy negative tests
+.\run-postman.ps1 -Env local -Folder "07 Negative & Security" -DelayMs 500
+```
+**Nói:** "Collection 7 folder, 40+ request. Pre-request: email random, Idempotency-Key UUID. Tests: status code, field validation, response time, lưu biến. Negative: 401 no token, 403 role, 404 internal via gateway, 409 idempotent/state, 429 rate limit (chạy riêng). HTML report by newman-reporter-htmlextra."
 
-**Lệnh kiểm tra (terminal):**
+---
+
+## 5:00 – 6:00 | SỐ LIỆU (1 phút)
+**Lệnh demo:**
+```powershell
+cd tools/report
+.\collect-evidence.ps1
+.\build-report.ps1
+cat ../../docs/reports/KET-QUA-KIEM-THU.md
+```
+**Nói:** "Báo cáo tự động: pass/fail per module, R1–R16 traceability, p50/p95/p99 từ load test, RabbitMQ queue depth, Redis memory. Evidence JSON cho CI artifact."
+
+---
+
+## 6:00 – 7:00 | CI/CD & VPS (1 phút)
+**Lệnh demo:**
 ```bash
-# Xem trip status
-curl -s https://ridehailing.duckdns.org/api/v1/rides/<RIDE_ID> \
-  -H "Authorization: Bearer <TOKEN>" | jq .
+# GitHub Actions workflow (xem .github/workflows/ci.yml)
+gh run list --limit 5
+# VPS deploy
+ssh vps "cd ride-hailing && docker compose pull && docker compose up -d --no-deps api-gateway"
+curl -s https://ridehailing.duckdns.org/actuator/health | jq .status
 ```
+**Nói:** "CI: build → unit test → integration test → docker build → push GHCR. CD: VPS pull image mới → rolling restart gateway → health check → rollback nếu fail. Backup Postgres hàng ngày qua pg_dump cron."
 
 ---
 
-### 4. Xem ví sau khi COMPLETED (15s)
-**Tab 1 - Khách:**
-1. Khi timeline hiện COMPLETED (màu xanh)
-2. Sidebar "Ví điện tử" tự làm mới: số dư giảm 34.000đ (từ 500.000đ → 466.000đ)
-3. Bấm **Làm mới** để xác nhận
+## 10 CÂU HỎI GIẢNG VIÊN + TRẢ LỜI NGẮN
 
-**Lệnh kiểm tra:**
+| # | Câu hỏi | Trả lời 30s |
+|---|---------|-------------|
+| 1 | RabbitMQ thay Kafka? | Latency thấp, routing topic linh hoạt, DLQ built-in, phù hợp request-reply ride-hailing. Kafka overkill. |
+| 2 | Busy state ở location-service? | Location là source of truth vị trí real-time; Redis GEO cần biết ONLINE/BUSY để lọc GEOSEARCH. Tách concern. |
+| 3 | Chống ghép trùng 3 lớp? | 1) Redis lock serialize offer/driver. 2) DB partial unique index chặn accept song song. 3) Idempotency key trên /rides + outbox eventId. |
+| 4 | Outbox pattern làm gì? | Ghi event + nghiệp vụ 1 transaction → đảm bảo at-least-once publish, không mất event khi crash. |
+| 5 | Consumer idempotent vì sao? | Publisher confirm + network partition có thể duplicate delivery. `eventId` + PK `processed_event` đảm bảo xử lý 1 lần. |
+| 6 | Surge pricing công thức? | `surge = clamp(1 + (demand-supply)/supply * 0.2, 1.0, 3.0)`. Supply=0 → 3. Location error → 1. |
+| 7 | WS multi-instance sync? | 2 instance share Redis channel `ws:out:{userId}`. `/internal/push` publish → instance hold session deliver. |
+| 8 | Rate limit test tránh 429? | Email random `test-{timestamp}`, Idempotency-Key UUID, delay 200ms. Auth 60 RPM, User 300 RPM. |
+| 9 | Rollback deployment? | Blue-green qua Docker tag. `docker compose up -d --no-deps api-gateway` health check → switch DNS. Rollback = tag cũ. |
+| 10 | Backup/restore Postgres? | `pg_dump -Fc > backup.dump` ; `pg_restore -c -d db backup.dump`. Volume snapshot cũng được. |
+
+---
+
+## Phụ lục: Lệnh hữu ích
 ```bash
-curl -s https://ridehailing.duckdns.org/api/v1/wallet \
-  -H "Authorization: Bearer <TOKEN>" | jq .balance
+# Xem logs service
+docker compose logs -f dispatch-service
+
+# RabbitMQ management UI
+open http://localhost:15672  # guest/guest
+
+# Redis CLI
+docker exec -it ride-hailing-redis-1 redis-cli
+
+# Xem trip state trong DB
+docker exec -it ride-hailing-postgres-1 psql -U dispatch_app -d dispatch -c "SELECT * FROM trips ORDER BY created_at DESC LIMIT 10;"
+
+# Xem outbox
+docker exec -it ride-hailing-postgres-1 psql -U dispatch_app -d dispatch -c "SELECT * FROM outbox WHERE sent_at IS NULL;"
 ```
-
----
-
-### 5. Độ trễ p50/p95 (15s)
-**Tab 1 - Khách:** Khung "Độ trễ (ước lượng)" hiển thị:
-- p50: ~XX ms
-- p95: ~XX ms
-- Mẫu: 50 tin gần nhất
-- Chú thích: "ước lượng do đồng hồ trình duyệt và server có thể lệch"
-
----
-
-### 6. Thử dừng 1 replica ws-gateway (60s)
-**Terminal:**
-```bash
-# Dừng replica 1 (port 8001)
-docker compose -f compose.yaml stop ws-gateway
-```
-
-**Quan sát Tab 1:**
-- WebSocket status: "Đang ngắt kết nối" → "Thử lại sau Xs (lần N)"
-- Sau 5-15s: "Đã xác thực" (reconnect tới replica 2 port 8011 qua Nginx)
-- Marker tài xế tiếp tục di chuyển, timeline tiếp tục cập nhật
-
-**Bật lại:**
-```bash
-docker compose -f compose.yaml start ws-gateway
-```
-
----
-
-## LỆNH CHẠY TẤT XẾ TỰ ĐỘNG (CHO DEMO NHANH)
-
-```bash
-# 1. Khởi động toàn bộ (nếu chưa chạy)
-docker compose -f compose.yaml --profile apps --profile ha up -d
-
-# 2. Chạy 100 tài xế ảo nền
-python tools/loadtest/drivers.py --count 100 &
-
-# 3. Đợi 10s cho tài xế sẵn sàng
-sleep 10
-
-# 4. Tạo khách và đặt xe (cần jq, uuidgen)
-TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
-  -H "Content-Type: application/json" \
-  -d '{"email":"demo_customer@test.com","password":"password123"}' | jq -r .accessToken)
-
-RIDE=$(curl -s -X POST http://localhost:8000/api/v1/rides \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Idempotency-Key: $(uuidgen)" \
-  -d '{"pickup_lat":21.0285,"pickup_lng":105.8542,"dropoff_lat":21.0385,"dropoff_lng":105.8642}')
-
-RIDE_ID=$(echo $RIDE | jq -r .tripId)
-echo "Ride ID: $RIDE_ID"
-
-# 5. Theo dõi trạng thái
-for i in {1..30}; do
-  curl -s http://localhost:8000/api/v1/rides/$RIDE_ID -H "Authorization: Bearer $TOKEN" | jq .status
-  sleep 2
-done
-
-# 6. Xem ví sau khi xong
-curl -s http://localhost:8000/api/v1/wallet -H "Authorization: Bearer $TOKEN" | jq .balance
-```
-
----
-
-## CHECKLIST SAU DEMO
-
-- [ ] Tắt tài xế ảo: `pkill -f drivers.py`
-- [ ] Dọn container test: `docker compose down` (giữ infra: postgres, redis, rabbitmq)
-- [ ] Commit & push nếu có thay đổi demo
-
----
-
-## LƯU Ý QUAN TRỌNG
-
-1. **Không bịa số liệu** – Chỉ demo những gì đã chạy được thực tế
-2. **Nếu WebSocket không reconnect** – Kiểm tra Nginx upstream có 2 server ws-gateway:8001 và ws-gateway-2:8011
-3. **Nếu matching chậm** – Tăng số tài xế ảo hoặc giảm radius tìm kiếm
-4. **HTTPS trên VPS** – Certbot tự gia hạn, không cần can thiệp
-4. **Rollback** – Nếu deploy lỗi: `./scripts/deploy.sh <tag-cũ>` trên VPS
