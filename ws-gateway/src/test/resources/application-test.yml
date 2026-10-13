@@ -3,3 +3,8 @@ jwt:
 
 internal:
   key: ${INTERNAL_KEY:test-internal-key}
+
+location:
+  client:
+    connect-timeout-ms: 5000
+    request-timeout-ms: 10000

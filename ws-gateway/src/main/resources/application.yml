@@ -30,3 +30,8 @@ websocket:
   max-message-size: 4096
   rate-limit-per-second: 5
   location-batch-interval-ms: 200
+
+location:
+  client:
+    connect-timeout-ms: 5000
+    request-timeout-ms: 10000

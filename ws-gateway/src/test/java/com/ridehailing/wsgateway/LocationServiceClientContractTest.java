@@ -15,7 +15,7 @@ class LocationServiceClientContractTest {
 
     @Test
     void clientParsesContractResponse() throws Exception {
-        var client = new LocationServiceClient(wiremock.baseUrl(), "test-key");
+        var client = new LocationServiceClient(wiremock.baseUrl(), "test-key", 5000, 10000);
         wiremock.stubFor(post("/internal/locations")
                 .willReturn(ok(fixture("location-post-locations.response"))
                         .withHeader("Content-Type", "application/json")));

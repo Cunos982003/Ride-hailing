@@ -15,3 +15,8 @@ spring:
 services:
   location: ${LOCATION_SERVICE_URL}
   dispatch: ${DISPATCH_SERVICE_URL}
+
+location:
+  client:
+    connect-timeout-ms: 5000
+    request-timeout-ms: 10000

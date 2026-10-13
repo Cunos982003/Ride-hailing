@@ -20,20 +20,26 @@ public class LocationServiceClient {
     private final HttpClient client;
     private final String baseUrl;
     private final String internalKey;
+    private final Duration connectTimeout;
+    private final Duration requestTimeout;
     private final ObjectMapper mapper = new ObjectMapper()
             .registerModule(new JavaTimeModule())
             .configure(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS, false)
             .setSerializationInclusion(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL);
 
     public LocationServiceClient(@Value("${services.location}") String baseUrl,
-                                 @Value("${internal.key}") String internalKey) {
+                                 @Value("${internal.key}") String internalKey,
+                                 @Value("${location.client.connect-timeout-ms:5000}") long connectTimeoutMs,
+                                 @Value("${location.client.request-timeout-ms:10000}") long requestTimeoutMs) {
         if (internalKey == null || internalKey.isBlank()) {
             throw new IllegalStateException("internal.key must be configured");
         }
         this.baseUrl = baseUrl;
         this.internalKey = internalKey;
+        this.connectTimeout = Duration.ofMillis(connectTimeoutMs);
+        this.requestTimeout = Duration.ofMillis(requestTimeoutMs);
         this.client = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofMillis(500))
+                .connectTimeout(this.connectTimeout)
                 .build();
     }
 
@@ -53,7 +59,7 @@ public class LocationServiceClient {
                     .uri(URI.create(baseUrl + "/internal/locations"))
                     .header("Content-Type", "application/json")
                     .header("X-Internal-Key", internalKey)
-                    .timeout(Duration.ofSeconds(1))
+                    .timeout(requestTimeout)
                     .POST(HttpRequest.BodyPublishers.ofString(json))
                     .build();
 

@@ -10,13 +10,14 @@ import sys
 import time
 import argparse
 from pathlib import Path
+from typing import List
 import websockets
 from websockets.exceptions import ConnectionClosed
 
 
-# Ho Chi Minh City center
-HCM_LAT = 10.762622
-HCM_LNG = 106.660172
+# Ha Noi center
+HAN_LAT = 21.0285
+HAN_LNG = 105.8542
 STEP_SIZE = 0.001  # ~100m per step
 
 # Reconnection parameters
@@ -33,9 +34,9 @@ class DriverSimulator:
         self.ws_url = ws_url
         self.reject_rate = reject_rate
 
-        # Random starting position around HCM
-        self.lat = HCM_LAT + random.uniform(-0.05, 0.05)
-        self.lng = HCM_LNG + random.uniform(-0.05, 0.05)
+        # Random starting position around Hanoi
+        self.lat = HAN_LAT + random.uniform(-0.05, 0.05)
+        self.lng = HAN_LNG + random.uniform(-0.05, 0.05)
 
         # Stats
         self.connected = False
